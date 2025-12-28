@@ -1,0 +1,26 @@
+.DS_Store
+*.swp
+*.tmp
+*.bak
+
+# Arduino build artifacts
+*.elf
+*.hex
+*.bin
+*.map
+*.eep
+*.o
+*.a
+*.d
+
+# IDE/CLI output
+build/
+out/
+
+# Arduino CLI
+.arduino/
+arduino-cli.yaml
+libraries/
+
+# VS Code
+.vscode/
