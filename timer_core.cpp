@@ -22,6 +22,7 @@ TimerCore::TimerCore()
     sleepOnUSB(true),
     idleStartTime(millis()),
     brightnessLevel(4),
+    themeId(1),
     alarmDuration(DEFAULT_ALARM_DURATION),
     alarmVibrationEnabled(true),
     alarmFlashEnabled(true),
@@ -95,6 +96,11 @@ void TimerCore::setSleepOnUSB(bool enabled) {
 
 void TimerCore::setBrightnessLevel(uint8_t level) { 
     brightnessLevel = level; 
+    saveState();
+}
+
+void TimerCore::setTheme(uint8_t theme) {
+    themeId = theme;
     saveState();
 }
 
@@ -278,6 +284,9 @@ void TimerCore::selectMenuItem() {
             case MenuItem::BRIGHTNESS:
                 editingValue = brightnessLevel;
                 break;
+            case MenuItem::THEME:
+                editingValue = themeId;
+                break;
             case MenuItem::ENABLE_WINDUP:
                 editingValue = windupEnabled ? 1 : 0;
                 break;                
@@ -365,6 +374,11 @@ void TimerCore::adjustValue(int8_t direction) {
              editingValue += direction;
          }
          break;
+      case MenuItem::THEME:
+         editingValue += direction;
+         if (editingValue < 1) editingValue = 1;
+         if (editingValue > 2) editingValue = 2;
+         break;
       case MenuItem::ALARM_DURATION:
          editingValue += direction;
          if (editingValue < 1) editingValue = 1;
@@ -434,6 +448,10 @@ void TimerCore::confirmValue() {
       case MenuItem::BRIGHTNESS:
          setBrightnessLevel(editingValue);
          Serial.printf("Brightness level set to: %d\n", editingValue);
+         break;
+      case MenuItem::THEME:
+         setTheme(editingValue);
+         Serial.printf("Theme set to: %d\n", editingValue);
          break;
       case MenuItem::ENABLE_WINDUP:
             setWindupEnabled(editingValue != 0);
@@ -514,6 +532,7 @@ void TimerCore::loadState() {
     sleepOnUSB = prefs.getBool("sleepOnUSB", true);
 
   brightnessLevel = prefs.getUChar("brightness", 4);
+  themeId = prefs.getUChar("theme", 1);
   windupEnabled = prefs.getBool("windupEn", false);
   // Load alarm settings
   alarmDuration = prefs.getUChar("alarmDur", DEFAULT_ALARM_DURATION);
@@ -567,6 +586,7 @@ void TimerCore::saveState() {
     prefs.putUChar("idleTimeUSB", idleTimeoutUSB);
     prefs.putBool("sleepOnUSB", sleepOnUSB);   
    prefs.putUChar("brightness", brightnessLevel);
+   prefs.putUChar("theme", themeId);
    prefs.putBool("windupEn", windupEnabled);  
    // NEW: Save alarm settings
    prefs.putUChar("alarmDur", alarmDuration);

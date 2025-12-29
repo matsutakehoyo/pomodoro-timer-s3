@@ -24,10 +24,14 @@
 
 LV_FONT_DECLARE(pomodoro_symbols);
 
-#include "background2.h"
-#include "pomodoro2.h"
-#include "flower2.h"
-#include "bud2.h"
+#include "background1_theme.h"
+#include "pomodoro1_theme.h"
+#include "flower1_theme.h"
+#include "bud1_theme.h"
+#include "background2_theme.h"
+#include "pomodoro2_theme.h"
+#include "flower2_theme.h"
+#include "bud2_theme.h"
 
 // Pin Definitions
 #define PIN_BUTTON_1 0
@@ -189,6 +193,11 @@ static const uint8_t PROGRESS_POMO_SIZE = 20;
 // Pomodoro images
 static lv_obj_t *pomodoro_images[MAX_TASKS][8] = {{nullptr}};
 
+static const lv_img_dsc_t *theme_background = &background_theme1;
+static const lv_img_dsc_t *theme_pomodoro = &pomodoro_19_theme1;
+static const lv_img_dsc_t *theme_flower = &flower_theme1;
+static const lv_img_dsc_t *theme_bud = &bud_theme1;
+
 // Arc tick marks
 static lv_obj_t *arc_ticks[60] = {nullptr};  // Support up to 60 ticks
 static lv_point_t tick_points[60][2];        // Each tick needs its own point array
@@ -237,6 +246,7 @@ void handle_button2_longpress();
 void update_menu_display();
 void update_battery_display();
 void update_brightness();
+void apply_theme_assets();
 void disable_scrolling(lv_obj_t *obj);
 void set_alert_colors(bool inverted);
 void update_cpu_frequency();
@@ -439,6 +449,25 @@ void update_brightness() {
   if (current_brightness != last_brightness) {
     ledcWrite(LCD_BL_PWM_CHANNEL, BRIGHTNESS_VALUES[current_brightness]);
     last_brightness = current_brightness;
+  }
+}
+
+void apply_theme_assets() {
+  uint8_t theme = timer.getTheme();
+  if (theme == 2) {
+    theme_background = &background_theme2;
+    theme_pomodoro = &pomodoro_19_theme2;
+    theme_flower = &flower_theme2;
+    theme_bud = &bud_theme2;
+  } else {
+    theme_background = &background_theme1;
+    theme_pomodoro = &pomodoro_19_theme1;
+    theme_flower = &flower_theme1;
+    theme_bud = &bud_theme1;
+  }
+
+  if (bg_img != nullptr) {
+    lv_img_set_src(bg_img, theme_background);
   }
 }
 
@@ -1148,6 +1177,10 @@ void update_windup_display() {
 
 
 void update_pomodoro_display() {
+    if (main_container == nullptr) {
+        return;
+    }
+
     // Define cluster positions for each task (up to 7 tasks)
     const int cluster_positions[7][2] = {
         {92, 77},   // Task 1
@@ -1218,7 +1251,7 @@ void update_pomodoro_display() {
                 if (pomodoro_images[task][p] == nullptr) {
                     pomodoro_images[task][p] = lv_img_create(main_container);
                 }
-                lv_img_set_src(pomodoro_images[task][p], &pomodoro_19);
+                lv_img_set_src(pomodoro_images[task][p], theme_pomodoro);
                 lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_100, 0);
                 
                 // Calculate position: cluster center + offset (mirrored for even tasks)
@@ -1260,7 +1293,7 @@ void update_pomodoro_display() {
                         if (pomodoro_images[task][p] == nullptr) {
                             pomodoro_images[task][p] = lv_img_create(main_container);
                         }
-                        lv_img_set_src(pomodoro_images[task][p], &bud);
+                        lv_img_set_src(pomodoro_images[task][p], theme_bud);
                         lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_70, 0);
 
                         int offset_x = pomodoro_offsets[p][0];
@@ -1299,7 +1332,7 @@ void update_pomodoro_display() {
                         if (pomodoro_images[task][p] == nullptr) {
                             pomodoro_images[task][p] = lv_img_create(main_container);
                         }
-                        lv_img_set_src(pomodoro_images[task][p], &flower);
+                        lv_img_set_src(pomodoro_images[task][p], theme_flower);
                         lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_70, 0);
 
                         int offset_x = pomodoro_offsets[p][0];
@@ -1322,7 +1355,7 @@ void update_pomodoro_display() {
                 if (pomodoro_images[task][flower_slot] == nullptr) {
                     pomodoro_images[task][flower_slot] = lv_img_create(main_container);
                 }
-                lv_img_set_src(pomodoro_images[task][flower_slot], &flower);
+                lv_img_set_src(pomodoro_images[task][flower_slot], theme_flower);
                 lv_obj_set_style_img_opa(pomodoro_images[task][flower_slot], LV_OPA_70, 0);
 
                 int offset_x = pomodoro_offsets[flower_slot][0];
@@ -1344,7 +1377,7 @@ void update_pomodoro_display() {
                 if (pomodoro_images[task][p] == nullptr) {
                     pomodoro_images[task][p] = lv_img_create(main_container);
                 }
-                lv_img_set_src(pomodoro_images[task][p], &pomodoro_19);
+                lv_img_set_src(pomodoro_images[task][p], theme_pomodoro);
                 lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_100, 0);
                 
                 int pomodoro_x = cluster_x + pomodoro_offsets[p][0];
@@ -1410,7 +1443,7 @@ void update_long_break_progress() {
         if (progress_pomodoros[i] == nullptr) {
             progress_pomodoros[i] = lv_img_create(progress_container);
         }
-        lv_img_set_src(progress_pomodoros[i], &pomodoro_19);
+        lv_img_set_src(progress_pomodoros[i], theme_pomodoro);
         
         // Position the pomodoro (relative to container)
         lv_obj_set_pos(progress_pomodoros[i], start_x + i * PROGRESS_POMO_SPACING, PROGRESS_POMO_Y_POS);
@@ -1477,11 +1510,8 @@ void format_duration(uint16_t total_minutes, char* buffer, size_t buffer_size) {
 void update_display() {
 
 
-  update_menu_display();
-  if (timer.getMenuState() != MenuState::CLOSED) {
-      update_menu_display();
-      return;
-  }
+  static uint8_t last_theme = 0;
+
 
   // First time setup of containers
   if (main_container == nullptr) {
@@ -1498,7 +1528,7 @@ void update_display() {
 
     // Add background image
     bg_img = lv_img_create(main_container);
-    lv_img_set_src(bg_img, &background);
+    lv_img_set_src(bg_img, theme_background);
     lv_obj_align(bg_img, LV_ALIGN_BOTTOM_LEFT, 0, 5);  // Center in main container
 
     // CREATE BATTERY LABEL (add this after main_container creation)
@@ -1584,6 +1614,20 @@ void update_display() {
     lv_obj_add_flag(idle_info_label, LV_OBJ_FLAG_HIDDEN);
 
   }
+
+  update_menu_display();
+  if (timer.getTheme() != last_theme) {
+    apply_theme_assets();
+    update_pomodoro_display();
+    update_long_break_progress();
+    last_theme = timer.getTheme();
+  }
+
+  if (timer.getMenuState() != MenuState::CLOSED) {
+      update_menu_display();
+      return;
+  }
+
 
   // Show/hide based on timer state
   if (timer.getState() == TimerState::WORK) {
@@ -2017,10 +2061,18 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
                 lv_label_set_text(menu_value_label, val_str);
             }
             break;
+        case MenuItem::THEME:
+            lv_label_set_text(menu_item_label, "Theme");
+            {
+                char val_str[16];
+                snprintf(val_str, sizeof(val_str), "Theme %d", timer.getTheme());
+                lv_label_set_text(menu_value_label, val_str);
+            }
+            break;
         case MenuItem::ENABLE_WINDUP:
-                lv_label_set_text(menu_item_label, "Wind-up Mode");
-                lv_label_set_text(menu_value_label, timer.getWindupEnabled() ? "ON" : "OFF");
-                break;
+            lv_label_set_text(menu_item_label, "Wind-up Mode");
+            lv_label_set_text(menu_value_label, timer.getWindupEnabled() ? "ON" : "OFF");
+            break;
         default:
             break;
     }
@@ -2101,10 +2153,13 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
         case MenuItem::BRIGHTNESS:
             lv_label_set_text(menu_item_label, "Brightness");
             break;
+        case MenuItem::THEME:
+            lv_label_set_text(menu_item_label, "Theme");
+            break;
         case MenuItem::ENABLE_WINDUP:
             lv_label_set_text(menu_item_label, "Wind-up Mode");
             lv_label_set_text(menu_value_label, timer.getEditingValue() ? "ON" : "OFF");
-                break;
+            break;
         default:
             break;
     }
@@ -2114,6 +2169,8 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
     if (timer.getCurrentMenuItem() == MenuItem::BRIGHTNESS) {
         int percent = (timer.getEditingValue() + 1) * 12.5;
         snprintf(val_str, sizeof(val_str), "%d%%", percent);
+    } else if (timer.getCurrentMenuItem() == MenuItem::THEME) {
+        snprintf(val_str, sizeof(val_str), "Theme %d", timer.getEditingValue());
     } else if (timer.getCurrentMenuItem() == MenuItem::MANAGE_TASKS) {
         snprintf(val_str, sizeof(val_str), "%d tasks", timer.getEditingValue());
     } else if (timer.getCurrentMenuItem() == MenuItem::POMODOROS_BEFORE_LONG_BREAK) {

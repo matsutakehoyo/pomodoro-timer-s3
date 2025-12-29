@@ -50,6 +50,7 @@ enum class MenuItem {
     IDLE_TIMEOUT_USB,            // NEW
     IDLE_SLEEP_ON_USB,           // NEW - toggle to disable sleep on USB
     BRIGHTNESS,
+    THEME,              // Visual theme selection
     ENABLE_WINDUP,       // Toggle wind-up mode    
     ALARM_DURATION,      // Alarm length in seconds
     ALARM_VIBRATION,     // Toggle vibration
@@ -87,6 +88,7 @@ private:
     uint8_t idleTimeoutUSB;
     bool sleepOnUSB;  // If false, never sleep when on USB power
     uint8_t brightnessLevel;
+    uint8_t themeId;
 
     // Alarm settings (NEW)
     uint8_t alarmDuration;        // in seconds
@@ -181,6 +183,7 @@ public:
     void setIdleTimeoutUSB(uint8_t minutes);
     void setSleepOnUSB(bool enabled);
     void setBrightnessLevel(uint8_t level);
+    void setTheme(uint8_t theme);
     void setTotalTasks(uint8_t count);
     void setTaskCompletedPomodoros(uint8_t taskId, uint8_t count);
     void setTaskInterruptedPomodoros(uint8_t taskId, uint8_t count);
@@ -212,6 +215,7 @@ public:
     uint8_t getIdleTimeoutUSB() const { return idleTimeoutUSB; }
     uint8_t getPomodorosBeforeLongBreak() const { return pomodorosBeforeLongBreak; }
     uint8_t getBrightnessLevel() const { return brightnessLevel; }
+    uint8_t getTheme() const { return themeId; }
     uint8_t getAlarmDuration() const { return alarmDuration; }           
     bool getAlarmVibration() const { return alarmVibrationEnabled; }     
     bool getAlarmFlash() const { return alarmFlashEnabled; }             
