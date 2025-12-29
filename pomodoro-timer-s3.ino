@@ -24,11 +24,11 @@
 
 LV_FONT_DECLARE(pomodoro_symbols);
 
-#include "background.h"
-// #include "pomodoro.h"
-#include "pomodoro_19.h"
-#include "flower.h"
-#include "bud.h"
+#include "background2.h"
+#include "pomodoro2.h"
+#include "flower2.h"
+#include "bud2.h"
+
 // Pin Definitions
 #define PIN_BUTTON_1 0
 #define PIN_BUTTON_2 14
@@ -263,7 +263,23 @@ void display_sleep_message() {
   lv_refr_now(NULL);
 }
 
+void dim_backlight_for_sleep() {
+  int8_t brightness_level = timer.getBrightnessLevel();
+  if (timer.isOnUSBPower(current_battery_voltage) && brightness_level < 7) {
+    brightness_level += 1;
+  }
+
+  for (int8_t level = brightness_level; level >= 0; level--) {
+    ledcWrite(LCD_BL_PWM_CHANNEL, BRIGHTNESS_VALUES[level]);
+    delay(30);
+  }
+  ledcWrite(LCD_BL_PWM_CHANNEL, 0);
+}
+
+
 void enter_deep_sleep() {
+  dim_backlight_for_sleep();
+
   // Disable watchdog before sleep
   esp_task_wdt_delete(NULL);  // Remove current task from WDT
   esp_task_wdt_deinit();       // Deinitialize WDT completely
@@ -407,12 +423,25 @@ void update_battery_display() {
 void update_brightness() {
   static int8_t last_brightness = -1;
   int8_t current_brightness = timer.getBrightnessLevel();
+  bool on_usb = timer.isOnUSBPower(current_battery_voltage);
+
+  if (timer.getMenuState() == MenuState::EDITING_VALUE &&
+      timer.getCurrentMenuItem() == MenuItem::BRIGHTNESS) {
+    return;
+  }
+
+  if (on_usb && current_brightness < 7) {
+    current_brightness += 1;
+  } else if (!on_usb && timer.getState() == TimerState::IDLE && current_brightness > 0) {
+    current_brightness -= 1;
+  }
   
   if (current_brightness != last_brightness) {
     ledcWrite(LCD_BL_PWM_CHANNEL, BRIGHTNESS_VALUES[current_brightness]);
     last_brightness = current_brightness;
   }
 }
+
 
 
 void update_task_display() {
@@ -1190,6 +1219,7 @@ void update_pomodoro_display() {
                     pomodoro_images[task][p] = lv_img_create(main_container);
                 }
                 lv_img_set_src(pomodoro_images[task][p], &pomodoro_19);
+                lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_100, 0);
                 
                 // Calculate position: cluster center + offset (mirrored for even tasks)
                 int offset_x = pomodoro_offsets[p][0];
@@ -1208,45 +1238,81 @@ void update_pomodoro_display() {
                 lv_obj_clear_flag(pomodoro_images[task][p], LV_OBJ_FLAG_HIDDEN);
             }
 
-            // Remaining slots for current task: buds
+            // Remaining slots for current task: up to 3 random buds
             if (is_current) {
+                int available_slots[5];
+                int available_count = 0;
                 for (int p = completed; p < 5; p++) {
-                    if (pomodoro_images[task][p] == nullptr) {
-                        pomodoro_images[task][p] = lv_img_create(main_container);
+                    available_slots[available_count++] = p;
+                }
+                if (available_count > 0) {
+                    uint32_t seed = (uint32_t)(timer.getPomodorosSinceLastLongBreak() * 31u + task * 17u + current_task * 7u);
+                    for (int i = available_count - 1; i > 0; i--) {
+                        seed = seed * 1103515245u + 12345u;
+                        int j = seed % (i + 1);
+                        int tmp = available_slots[i];
+                        available_slots[i] = available_slots[j];
+                        available_slots[j] = tmp;
                     }
-                    lv_img_set_src(pomodoro_images[task][p], &bud);
+                    int show_count = (available_count > 3) ? 3 : available_count;
+                    for (int i = 0; i < show_count; i++) {
+                        int p = available_slots[i];
+                        if (pomodoro_images[task][p] == nullptr) {
+                            pomodoro_images[task][p] = lv_img_create(main_container);
+                        }
+                        lv_img_set_src(pomodoro_images[task][p], &bud);
+                        lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_70, 0);
 
-                    int offset_x = pomodoro_offsets[p][0];
-                    int offset_y = pomodoro_offsets[p][1];
-                    if (mirror) {
-                        offset_x = -offset_x;
+                        int offset_x = pomodoro_offsets[p][0];
+                        int offset_y = pomodoro_offsets[p][1];
+                        if (mirror) {
+                            offset_x = -offset_x;
+                        }
+
+                        int bud_x = cluster_x + offset_x;
+                        int bud_y = cluster_y + offset_y;
+                        lv_obj_set_pos(pomodoro_images[task][p], bud_x, bud_y);
+                        lv_obj_clear_flag(pomodoro_images[task][p], LV_OBJ_FLAG_HIDDEN);
                     }
-
-                    int bud_x = cluster_x + offset_x;
-                    int bud_y = cluster_y + offset_y;
-                    lv_obj_set_pos(pomodoro_images[task][p], bud_x, bud_y);
-                    lv_obj_clear_flag(pomodoro_images[task][p], LV_OBJ_FLAG_HIDDEN);
                 }
             }
 
-            // Next task: flowers for remaining slots
+            // Next task: up to 3 random flowers for remaining slots
             if (is_next) {
+                int available_slots[5];
+                int available_count = 0;
                 for (int p = completed; p < 5; p++) {
-                    if (pomodoro_images[task][p] == nullptr) {
-                        pomodoro_images[task][p] = lv_img_create(main_container);
+                    available_slots[available_count++] = p;
+                }
+                if (available_count > 0) {
+                    uint32_t seed = (uint32_t)(timer.getPomodorosSinceLastLongBreak() * 31u + task * 17u + (current_task + 1) * 7u);
+                    for (int i = available_count - 1; i > 0; i--) {
+                        seed = seed * 1103515245u + 12345u;
+                        int j = seed % (i + 1);
+                        int tmp = available_slots[i];
+                        available_slots[i] = available_slots[j];
+                        available_slots[j] = tmp;
                     }
-                    lv_img_set_src(pomodoro_images[task][p], &flower);
+                    int show_count = (available_count > 3) ? 3 : available_count;
+                    for (int i = 0; i < show_count; i++) {
+                        int p = available_slots[i];
+                        if (pomodoro_images[task][p] == nullptr) {
+                            pomodoro_images[task][p] = lv_img_create(main_container);
+                        }
+                        lv_img_set_src(pomodoro_images[task][p], &flower);
+                        lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_70, 0);
 
-                    int offset_x = pomodoro_offsets[p][0];
-                    int offset_y = pomodoro_offsets[p][1];
-                    if (mirror) {
-                        offset_x = -offset_x;
+                        int offset_x = pomodoro_offsets[p][0];
+                        int offset_y = pomodoro_offsets[p][1];
+                        if (mirror) {
+                            offset_x = -offset_x;
+                        }
+
+                        int flower_x = cluster_x + offset_x;
+                        int flower_y = cluster_y + offset_y;
+                        lv_obj_set_pos(pomodoro_images[task][p], flower_x, flower_y);
+                        lv_obj_clear_flag(pomodoro_images[task][p], LV_OBJ_FLAG_HIDDEN);
                     }
-
-                    int flower_x = cluster_x + offset_x;
-                    int flower_y = cluster_y + offset_y;
-                    lv_obj_set_pos(pomodoro_images[task][p], flower_x, flower_y);
-                    lv_obj_clear_flag(pomodoro_images[task][p], LV_OBJ_FLAG_HIDDEN);
                 }
             }
 
@@ -1257,6 +1323,7 @@ void update_pomodoro_display() {
                     pomodoro_images[task][flower_slot] = lv_img_create(main_container);
                 }
                 lv_img_set_src(pomodoro_images[task][flower_slot], &flower);
+                lv_obj_set_style_img_opa(pomodoro_images[task][flower_slot], LV_OPA_70, 0);
 
                 int offset_x = pomodoro_offsets[flower_slot][0];
                 int offset_y = pomodoro_offsets[flower_slot][1];
@@ -1278,6 +1345,7 @@ void update_pomodoro_display() {
                     pomodoro_images[task][p] = lv_img_create(main_container);
                 }
                 lv_img_set_src(pomodoro_images[task][p], &pomodoro_19);
+                lv_obj_set_style_img_opa(pomodoro_images[task][p], LV_OPA_100, 0);
                 
                 int pomodoro_x = cluster_x + pomodoro_offsets[p][0];
                 int pomodoro_y = cluster_y + pomodoro_offsets[p][1];
@@ -1341,8 +1409,8 @@ void update_long_break_progress() {
         // Create pomodoro image if it doesn't exist
         if (progress_pomodoros[i] == nullptr) {
             progress_pomodoros[i] = lv_img_create(progress_container);
-            lv_img_set_src(progress_pomodoros[i], &pomodoro_19);
         }
+        lv_img_set_src(progress_pomodoros[i], &pomodoro_19);
         
         // Position the pomodoro (relative to container)
         lv_obj_set_pos(progress_pomodoros[i], start_x + i * PROGRESS_POMO_SPACING, PROGRESS_POMO_Y_POS);
@@ -1353,7 +1421,7 @@ void update_long_break_progress() {
             lv_obj_set_style_img_opa(progress_pomodoros[i], LV_OPA_100, 0);
         } else {
             lv_obj_clear_flag(progress_pomodoros[i], LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_img_opa(progress_pomodoros[i], LV_OPA_20, 0);
+            lv_obj_set_style_img_opa(progress_pomodoros[i], LV_OPA_40, 0);
         }
     }
     
@@ -2188,7 +2256,6 @@ void loop() {
   uint32_t now = millis();
   
   // Read battery voltage
-  static float current_battery_voltage = 0.0;
   static uint32_t last_voltage_check = 0;
   if (millis() - last_voltage_check > BATTERY_CHECK_INTERVAL_MS) {
     current_battery_voltage = analogRead(PIN_BAT_VOLT) * 3.3 / 4095.0 * 2.0;
