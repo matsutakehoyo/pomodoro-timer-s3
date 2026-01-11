@@ -44,6 +44,7 @@ enum class MenuItem {
     SHORT_BREAK_LENGTH,
     LONG_BREAK_LENGTH,
     POMODOROS_BEFORE_LONG_BREAK,
+    LONG_BREAK_PROGRESS,
     MANAGE_TASKS,
     EDIT_COMPLETED_POMODOROS,
     EDIT_INTERRUPTED_POMODOROS,
@@ -57,6 +58,7 @@ enum class MenuItem {
     ALARM_DURATION,      // Alarm length in seconds
     ALARM_VIBRATION,     // Toggle haptic feedback
     ALARM_FLASH,         // Toggle screen flash
+    SCREEN_ORIENTATION,  // Toggle screen orientation
     MENU_ITEM_COUNT      // Keep this last for iteration
 };
 
@@ -91,6 +93,7 @@ private:
     bool sleepOnUSB;  // If false, never sleep when on USB power
     uint8_t brightnessLevel;
     uint8_t themeId;
+    bool screenFlipped;
 
     // Alarm settings (NEW)
     uint8_t alarmDuration;        // in seconds
@@ -187,6 +190,8 @@ public:
     void setSleepOnUSB(bool enabled);
     void setBrightnessLevel(uint8_t level);
     void setTheme(uint8_t theme);
+    void setScreenFlipped(bool flipped);
+    void setPomodorosSinceLastLongBreak(uint8_t count);
     void setTotalTasks(uint8_t count);
     void setTaskCompletedPomodoros(uint8_t taskId, uint8_t count);
     void setTaskInterruptedPomodoros(uint8_t taskId, uint8_t count);
@@ -217,8 +222,10 @@ public:
     uint8_t getIdleTimeoutBattery() const { return idleTimeoutBattery; }
     uint8_t getIdleTimeoutUSB() const { return idleTimeoutUSB; }
     uint8_t getPomodorosBeforeLongBreak() const { return pomodorosBeforeLongBreak; }
+    uint8_t getPomodorosSinceLastLongBreak() const { return pomodorosSinceLastLongBreak; }
     uint8_t getBrightnessLevel() const { return brightnessLevel; }
     uint8_t getTheme() const { return themeId; }
+    bool getScreenFlipped() const { return screenFlipped; }
     uint8_t getAlarmDuration() const { return alarmDuration; }           
     bool getAlarmVibration() const { return alarmVibrationEnabled; }     
     bool getAlarmFlash() const { return alarmFlashEnabled; }             

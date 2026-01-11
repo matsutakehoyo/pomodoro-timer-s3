@@ -251,6 +251,7 @@ void update_menu_display();
 void update_battery_display();
 void update_brightness();
 void apply_theme_assets();
+void apply_display_orientation();
 void disable_scrolling(lv_obj_t *obj);
 void set_alert_colors(bool inverted);
 void update_cpu_frequency();
@@ -475,6 +476,11 @@ void apply_theme_assets() {
   if (bg_img != nullptr) {
     lv_img_set_src(bg_img, theme_background);
   }
+}
+
+void apply_display_orientation() {
+  uint8_t rotation = timer.getScreenFlipped() ? 1 : 3;
+  tft.setRotation(rotation);
 }
 
 
@@ -1521,6 +1527,7 @@ void update_display() {
 
   static uint8_t last_theme = 0;
   static TimerState last_state = TimerState::IDLE;
+  static bool last_flipped = false;
 
 
   // First time setup of containers
@@ -1626,6 +1633,11 @@ void update_display() {
   }
 
   update_menu_display();
+  if (timer.getScreenFlipped() != last_flipped) {
+    apply_display_orientation();
+    lv_obj_invalidate(lv_scr_act());
+    last_flipped = timer.getScreenFlipped();
+  }
   if (timer.getTheme() != last_theme) {
     apply_theme_assets();
     update_pomodoro_display();
@@ -2033,6 +2045,16 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
                 lv_label_set_text(menu_value_label, val_str);
             }
             break;
+        case MenuItem::LONG_BREAK_PROGRESS:
+            lv_label_set_text(menu_item_label, "Long Break Progress");
+            {
+                char val_str[16];
+                snprintf(val_str, sizeof(val_str), "%d / %d",
+                         timer.getPomodorosSinceLastLongBreak(),
+                         timer.getPomodorosBeforeLongBreak());
+                lv_label_set_text(menu_value_label, val_str);
+            }
+            break;
         case MenuItem::MANAGE_TASKS:
             lv_label_set_text(menu_item_label, "Total Tasks");
             {
@@ -2126,6 +2148,10 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
                 lv_label_set_text(menu_value_label, val_str);
             }
             break;
+        case MenuItem::SCREEN_ORIENTATION:
+            lv_label_set_text(menu_item_label, "Orientation");
+            lv_label_set_text(menu_value_label, timer.getScreenFlipped() ? "Flipped" : "Normal");
+            break;
         case MenuItem::ENABLE_WINDUP:
             lv_label_set_text(menu_item_label, "Wind-up Mode");
             lv_label_set_text(menu_value_label, timer.getWindupEnabled() ? "ON" : "OFF");
@@ -2150,6 +2176,9 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
             break;
         case MenuItem::POMODOROS_BEFORE_LONG_BREAK:
             lv_label_set_text(menu_item_label, "Pomodoros Before Break");
+            break;
+        case MenuItem::LONG_BREAK_PROGRESS:
+            lv_label_set_text(menu_item_label, "Long Break Progress");
             break;
         case MenuItem::MANAGE_TASKS:
             lv_label_set_text(menu_item_label, "Total Tasks");
@@ -2213,6 +2242,9 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
         case MenuItem::THEME:
             lv_label_set_text(menu_item_label, "Theme");
             break;
+        case MenuItem::SCREEN_ORIENTATION:
+            lv_label_set_text(menu_item_label, "Orientation");
+            break;
         case MenuItem::ENABLE_WINDUP:
             lv_label_set_text(menu_item_label, "Wind-up Mode");
             lv_label_set_text(menu_value_label, timer.getEditingValue() ? "ON" : "OFF");
@@ -2232,12 +2264,17 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
         snprintf(val_str, sizeof(val_str), "%d tasks", timer.getEditingValue());
     } else if (timer.getCurrentMenuItem() == MenuItem::POMODOROS_BEFORE_LONG_BREAK) {
         snprintf(val_str, sizeof(val_str), "%d", timer.getEditingValue());
+    } else if (timer.getCurrentMenuItem() == MenuItem::LONG_BREAK_PROGRESS) {
+        snprintf(val_str, sizeof(val_str), "%d / %d", timer.getEditingValue(),
+                 timer.getPomodorosBeforeLongBreak());
     } else if (timer.getCurrentMenuItem() == MenuItem::EDIT_COMPLETED_POMODOROS || 
                timer.getCurrentMenuItem() == MenuItem::EDIT_INTERRUPTED_POMODOROS) {
         snprintf(val_str, sizeof(val_str), "%d", timer.getEditingValue());
     } else if (timer.getCurrentMenuItem() == MenuItem::ALARM_VIBRATION || 
                timer.getCurrentMenuItem() == MenuItem::ALARM_FLASH) {
         snprintf(val_str, sizeof(val_str), "%s", timer.getEditingValue() ? "ON" : "OFF");
+    } else if (timer.getCurrentMenuItem() == MenuItem::SCREEN_ORIENTATION) {
+        snprintf(val_str, sizeof(val_str), "%s", timer.getEditingValue() ? "Flipped" : "Normal");
     } else {
         snprintf(val_str, sizeof(val_str), "%d min", timer.getEditingValue());
     }    
@@ -2293,7 +2330,7 @@ void setup() {
 
   // Initialize TFT
   tft.init();
-  tft.setRotation(3); // change this for screen orientation 1: 90 degress rotation, 3: 270 degrees
+  apply_display_orientation();
   tft.fillScreen(TFT_BLACK);
 
   // Initialize backlight
@@ -2430,6 +2467,9 @@ void loop() {
         return;
       }
       int8_t direction = (new_position > encoder_position) ? -1 : 1;
+      if (timer.getScreenFlipped()) {
+        direction = -direction;
+      }
       encoder_position = new_position;
       
       timer.resetIdleTimer();

@@ -23,6 +23,7 @@ TimerCore::TimerCore()
     idleStartTime(millis()),
     brightnessLevel(4),
     themeId(1),
+    screenFlipped(false),
     alarmDuration(DEFAULT_ALARM_DURATION),
     alarmVibrationEnabled(true),
     alarmFlashEnabled(true),
@@ -70,6 +71,9 @@ void TimerCore::setLongBreakDuration(uint8_t minutes) {
 
 void TimerCore::setPomodorosBeforeLongBreak(uint8_t count) { 
     pomodorosBeforeLongBreak = count; 
+    if (pomodorosSinceLastLongBreak > pomodorosBeforeLongBreak) {
+        pomodorosSinceLastLongBreak = pomodorosBeforeLongBreak;
+    }
     saveState();
 }
 
@@ -102,6 +106,19 @@ void TimerCore::setBrightnessLevel(uint8_t level) {
 
 void TimerCore::setTheme(uint8_t theme) {
     themeId = theme;
+    saveState();
+}
+
+void TimerCore::setScreenFlipped(bool flipped) {
+    screenFlipped = flipped;
+    saveState();
+}
+
+void TimerCore::setPomodorosSinceLastLongBreak(uint8_t count) {
+    if (count > pomodorosBeforeLongBreak) {
+        count = pomodorosBeforeLongBreak;
+    }
+    pomodorosSinceLastLongBreak = count;
     saveState();
 }
 
@@ -261,6 +278,9 @@ void TimerCore::selectMenuItem() {
             case MenuItem::POMODOROS_BEFORE_LONG_BREAK:
                 editingValue = pomodorosBeforeLongBreak;
                 break;
+            case MenuItem::LONG_BREAK_PROGRESS:
+                editingValue = pomodorosSinceLastLongBreak;
+                break;
             case MenuItem::MANAGE_TASKS:
                 editingValue = totalTasks;
                 break;
@@ -288,6 +308,9 @@ void TimerCore::selectMenuItem() {
                 break;
             case MenuItem::THEME:
                 editingValue = themeId;
+                break;
+            case MenuItem::SCREEN_ORIENTATION:
+                editingValue = screenFlipped ? 1 : 0;
                 break;
             case MenuItem::ENABLE_WINDUP:
                 editingValue = windupEnabled ? 1 : 0;
@@ -331,6 +354,14 @@ void TimerCore::adjustValue(int8_t direction) {
          editingValue += direction;
          if (editingValue < 2) editingValue = 2;
          if (editingValue > 10) editingValue = 10;
+         break;
+      case MenuItem::LONG_BREAK_PROGRESS:
+         {
+             int16_t newValue = editingValue + direction;
+             if (newValue < 0) newValue = 0;
+             if (newValue > pomodorosBeforeLongBreak) newValue = pomodorosBeforeLongBreak;
+             editingValue = newValue;
+         }
          break;
       case MenuItem::MANAGE_TASKS:
          {
@@ -386,6 +417,7 @@ void TimerCore::adjustValue(int8_t direction) {
          if (editingValue < 1) editingValue = 1;
          if (editingValue > 10) editingValue = 10;
          break;
+      case MenuItem::SCREEN_ORIENTATION:
       case MenuItem::ENABLE_WINDUP:
       case MenuItem::ALARM_VIBRATION:
       case MenuItem::ALARM_FLASH:
@@ -418,6 +450,10 @@ void TimerCore::confirmValue() {
       case MenuItem::POMODOROS_BEFORE_LONG_BREAK:
          setPomodorosBeforeLongBreak(editingValue);
          Serial.printf("n Pomodoros Before long break set to: %d pomodoros\n", editingValue);
+         break;
+      case MenuItem::LONG_BREAK_PROGRESS:
+         setPomodorosSinceLastLongBreak(editingValue);
+         Serial.printf("Pomodoros since last long break set to: %d\n", editingValue);
          break;
       case MenuItem::MANAGE_TASKS:
          setTotalTasks(editingValue);
@@ -454,6 +490,10 @@ void TimerCore::confirmValue() {
       case MenuItem::THEME:
          setTheme(editingValue);
          Serial.printf("Theme set to: %d\n", editingValue);
+         break;
+      case MenuItem::SCREEN_ORIENTATION:
+         setScreenFlipped(editingValue != 0);
+         Serial.printf("Screen orientation set to: %s\n", editingValue ? "Flipped" : "Normal");
          break;
       case MenuItem::ENABLE_WINDUP:
             setWindupEnabled(editingValue != 0);
@@ -528,6 +568,10 @@ void TimerCore::loadState() {
   shortBreakDuration = prefs.getUChar("shortBreak", SHORT_BREAK_DURATION);
   longBreakDuration = prefs.getUChar("longBreak", LONG_BREAK_DURATION);
   pomodorosBeforeLongBreak = prefs.getUChar("pomosB4Long", POMODOROS_BEFORE_LONG_BREAK);
+  pomodorosSinceLastLongBreak = prefs.getUChar("pomosSince", 0);
+  if (pomodorosSinceLastLongBreak > pomodorosBeforeLongBreak) {
+    pomodorosSinceLastLongBreak = pomodorosBeforeLongBreak;
+  }
   // idleTimeoutDuration = prefs.getUChar("idleTimeout", IDLE_TIMEOUT_MINUTES);
     idleTimeoutBattery = prefs.getUChar("idleTimeout", IDLE_TIMEOUT_BATTERY_MINUTES);  // Keep old key for compatibility
     idleTimeoutUSB = prefs.getUChar("idleTimeUSB", IDLE_TIMEOUT_USB_MINUTES);
@@ -535,6 +579,7 @@ void TimerCore::loadState() {
 
   brightnessLevel = prefs.getUChar("brightness", 4);
   themeId = prefs.getUChar("theme", 1);
+  screenFlipped = prefs.getBool("screenFlip", false);
   windupEnabled = prefs.getBool("windupEn", false);
   // Load alarm settings
   alarmDuration = prefs.getUChar("alarmDur", DEFAULT_ALARM_DURATION);
@@ -583,12 +628,14 @@ void TimerCore::saveState() {
    prefs.putUChar("shortBreak", shortBreakDuration);
    prefs.putUChar("longBreak", longBreakDuration);
    prefs.putUChar("pomosB4Long", pomodorosBeforeLongBreak);
+   prefs.putUChar("pomosSince", pomodorosSinceLastLongBreak);
    // prefs.putUChar("idleTimeout", idleTimeoutDuration);
     prefs.putUChar("idleTimeout", idleTimeoutBattery);  // Keep old key name
     prefs.putUChar("idleTimeUSB", idleTimeoutUSB);
     prefs.putBool("sleepOnUSB", sleepOnUSB);   
    prefs.putUChar("brightness", brightnessLevel);
    prefs.putUChar("theme", themeId);
+   prefs.putBool("screenFlip", screenFlipped);
    prefs.putBool("windupEn", windupEnabled);  
    // NEW: Save alarm settings
    prefs.putUChar("alarmDur", alarmDuration);
@@ -754,11 +801,11 @@ void TimerCore::updateAlert() {
             if (currentTaskId < MAX_TASKS) {
                 completedPomodoros[currentTaskId]++;
                 completedSessions++;
-                saveState();
             }
 
             // Start appropriate break
             startBreak();
+            saveState();
         } else {
             state = TimerState::IDLE;
             remainingTime = 0;
