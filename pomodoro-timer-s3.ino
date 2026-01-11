@@ -106,6 +106,7 @@ const uint32_t DISPLAY_UPDATE_MS = 20;
 
 // Alert timing
 const uint32_t ALERT_BLINK_INTERVAL_MS = 400;
+const uint16_t WINDUP_START_VIBRATION_MS = 80;
 
 // Colors
 const uint32_t COLOR_BLACK = 0x000000;
@@ -184,6 +185,9 @@ static lv_obj_t *status_label = nullptr;
 static lv_obj_t *task_title_label = nullptr;
 static lv_obj_t *task_num_label = nullptr;
 static lv_obj_t *pomo_container = nullptr;
+static lv_obj_t *starting_container = nullptr;
+static lv_obj_t *starting_label = nullptr;
+static lv_obj_t *starting_sub_label = nullptr;
 
 // Progress indicators
 static lv_obj_t *progress_pomodoros[10] = {nullptr};
@@ -335,6 +339,8 @@ void handle_button1_click() {
       break;
     case TimerState::WIND_UP:
       timer.startWorkFromWindup();
+      break;
+    case TimerState::STARTING:
       break;
     case TimerState::WORK:
       timer.interrupt();
@@ -1202,7 +1208,9 @@ void update_pomodoro_display() {
     };
 
     // Hide all pomodoro images during work mode
-    if (timer.getState() == TimerState::WORK || timer.getState() == TimerState::WIND_UP) {
+    if (timer.getState() == TimerState::WORK || 
+        timer.getState() == TimerState::WIND_UP || 
+        timer.getState() == TimerState::STARTING) {
         for (int task = 0; task < MAX_TASKS; task++) {
             for (int p = 0; p < 8; p++) {
                 if (pomodoro_images[task][p] != nullptr) {
@@ -1424,6 +1432,7 @@ void update_long_break_progress() {
     // Don't show during work, wind-up, or if menu is open
     if (timer.getState() == TimerState::WORK || 
         timer.getState() == TimerState::WIND_UP || 
+        timer.getState() == TimerState::STARTING || 
         timer.getMenuState() != MenuState::CLOSED) {
         lv_obj_add_flag(progress_container, LV_OBJ_FLAG_HIDDEN);
         return;
@@ -1511,6 +1520,7 @@ void update_display() {
 
 
   static uint8_t last_theme = 0;
+  static TimerState last_state = TimerState::IDLE;
 
 
   // First time setup of containers
@@ -1628,6 +1638,48 @@ void update_display() {
       return;
   }
 
+  if (timer.getState() == TimerState::STARTING) {
+    if (starting_container == nullptr) {
+      starting_container = lv_obj_create(lv_scr_act());
+      lv_obj_set_size(starting_container, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+      lv_obj_center(starting_container);
+      lv_obj_set_style_bg_color(starting_container, lv_color_hex(COLOR_BLACK), 0);
+      lv_obj_set_style_border_width(starting_container, 0, 0);
+      disable_scrolling(starting_container);
+
+      starting_label = lv_label_create(starting_container);
+      lv_obj_set_style_text_font(starting_label, &lv_font_montserrat_24, 0);
+      lv_obj_set_style_text_color(starting_label, lv_color_hex(0x00E676), 0);
+      lv_label_set_text(starting_label, "Brewing focus...");
+      lv_obj_align(starting_label, LV_ALIGN_CENTER, 0, -10);
+
+      starting_sub_label = lv_label_create(starting_container);
+      lv_obj_set_style_text_font(starting_sub_label, &lv_font_montserrat_14, 0);
+      lv_obj_set_style_text_color(starting_sub_label, lv_color_hex(0x808080), 0);
+      lv_label_set_text(starting_sub_label, "Pomodoro starting");
+      lv_obj_align(starting_sub_label, LV_ALIGN_CENTER, 0, 18);
+    }
+
+    lv_obj_clear_flag(starting_container, LV_OBJ_FLAG_HIDDEN);
+    if (main_container != nullptr) lv_obj_add_flag(main_container, LV_OBJ_FLAG_HIDDEN);
+    if (sidebar_container != nullptr) lv_obj_add_flag(sidebar_container, LV_OBJ_FLAG_HIDDEN);
+    if (progress_container != nullptr) lv_obj_add_flag(progress_container, LV_OBJ_FLAG_HIDDEN);
+
+    if (last_state != TimerState::STARTING && timer.getAlarmVibration()) {
+      digitalWrite(PIN_VIBRATION, HIGH);
+      delay(WINDUP_START_VIBRATION_MS);
+      digitalWrite(PIN_VIBRATION, LOW);
+    }
+
+    last_state = TimerState::STARTING;
+    return;
+  }
+
+  if (starting_container != nullptr) {
+    lv_obj_add_flag(starting_container, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (main_container != nullptr) lv_obj_clear_flag(main_container, LV_OBJ_FLAG_HIDDEN);
+
 
   // Show/hide based on timer state
   if (timer.getState() == TimerState::WORK) {
@@ -1691,7 +1743,9 @@ void update_display() {
   // === UPDATE TIME DISPLAY ===
   char time_str[32];
 
-  if (timer.getState() != TimerState::WORK && timer.getState() != TimerState::WIND_UP) {
+  if (timer.getState() != TimerState::WORK && 
+      timer.getState() != TimerState::WIND_UP && 
+      timer.getState() != TimerState::STARTING) {
     if (timer.getState() == TimerState::IDLE) {
         // Show session summary instead of 00:00
         uint8_t completed = get_total_completed_pomodoros();
@@ -1879,11 +1933,14 @@ void update_display() {
         set_alert_colors(false);
         was_alert_active = false;
         // Re-update task display to restore proper task-specific colors
-        if (timer.getState() != TimerState::WORK && timer.getState() != TimerState::WIND_UP) {
+        if (timer.getState() != TimerState::WORK && 
+            timer.getState() != TimerState::WIND_UP && 
+            timer.getState() != TimerState::STARTING) {
             update_task_display();
         }
     }
 
+    last_state = timer.getState();
 }
 
 
@@ -2016,7 +2073,7 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
             }
             break;
         case MenuItem::ALARM_VIBRATION:
-            lv_label_set_text(menu_item_label, "Alarm Vibration");
+            lv_label_set_text(menu_item_label, "Haptic Feedback");
             lv_label_set_text(menu_value_label, timer.getAlarmVibration() ? "ON" : "OFF");
             break;
         case MenuItem::ALARM_FLASH:
@@ -2120,7 +2177,7 @@ if (timer.getMenuState() == MenuState::MENU_LIST) {
             }
             break;
         case MenuItem::ALARM_VIBRATION:
-            lv_label_set_text(menu_item_label, "Alarm Vibration");
+            lv_label_set_text(menu_item_label, "Haptic Feedback");
             lv_label_set_text(menu_value_label, timer.getEditingValue() ? "ON" : "OFF");
             break;
         case MenuItem::ALARM_FLASH:
@@ -2368,6 +2425,10 @@ void loop() {
     long new_position = encoder->getPosition();
     
     if (new_position != encoder_position) {
+      if (timer.getState() == TimerState::STARTING) {
+        encoder_position = new_position;
+        return;
+      }
       int8_t direction = (new_position > encoder_position) ? -1 : 1;
       encoder_position = new_position;
       
@@ -2428,40 +2489,45 @@ void loop() {
 
   bool current_enc_button = digitalRead(PIN_ENC_BTN);
 
-  // Only process changes after debounce period has elapsed
-  if (current_enc_button != last_enc_button && 
-      millis() - last_button_change >= DEBOUNCE_MS) {
-    
-    last_button_change = millis();  // Record time of this change
-    
-    if (current_enc_button == LOW) {
-      // Button pressed
-      timer.resetIdleTimer();
-      encoderButtonPressTime = millis();
-      encoderButtonLongPressHandled = false;
-    } else {
-      // Button released
-      unsigned long duration = millis() - encoderButtonPressTime;
+  if (timer.getState() == TimerState::STARTING) {
+    last_enc_button = current_enc_button;
+    last_button_change = millis();
+  } else {
+    // Only process changes after debounce period has elapsed
+    if (current_enc_button != last_enc_button && 
+        millis() - last_button_change >= DEBOUNCE_MS) {
       
-      if (!encoderButtonLongPressHandled && duration < 500) {
-        // Short press
-        if (timer.getMenuState() == MenuState::CLOSED) {
-          timer.addTask();
-        } else if (timer.getMenuState() == MenuState::MENU_LIST) {
-          timer.selectMenuItem();
-        } else if (timer.getMenuState() == MenuState::EDITING_VALUE) {
-          timer.confirmValue();
+      last_button_change = millis();  // Record time of this change
+      
+      if (current_enc_button == LOW) {
+        // Button pressed
+        timer.resetIdleTimer();
+        encoderButtonPressTime = millis();
+        encoderButtonLongPressHandled = false;
+      } else {
+        // Button released
+        unsigned long duration = millis() - encoderButtonPressTime;
+        
+        if (!encoderButtonLongPressHandled && duration < 500) {
+          // Short press
+          if (timer.getMenuState() == MenuState::CLOSED) {
+            timer.addTask();
+          } else if (timer.getMenuState() == MenuState::MENU_LIST) {
+            timer.selectMenuItem();
+          } else if (timer.getMenuState() == MenuState::EDITING_VALUE) {
+            timer.confirmValue();
+          }
         }
       }
+      
+      last_enc_button = current_enc_button;  // Update last state
     }
-    
-    last_enc_button = current_enc_button;  // Update last state
   }
 
 
   
   // Check for long press
-  if (current_enc_button == LOW && !encoderButtonLongPressHandled) {
+  if (timer.getState() != TimerState::STARTING && current_enc_button == LOW && !encoderButtonLongPressHandled) {
     if (millis() - encoderButtonPressTime >= 500) {
       encoderButtonLongPressHandled = true;
       

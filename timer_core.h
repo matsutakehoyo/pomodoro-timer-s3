@@ -14,6 +14,7 @@ const uint8_t IDLE_TIMEOUT_USB_MINUTES = 30;     // Longer timeout on USB
 // Alert configurations (defaults)
 const uint8_t DEFAULT_ALARM_DURATION = 2;  // in seconds
 const uint8_t ALERT_BLINK_COUNT = 5;       // Number of times to blink
+const uint16_t WINDUP_START_DELAY_MS = 2500;
 
 // Task management constants
 const uint8_t MAX_TASKS = 12;  // Maximum number of tasks to track
@@ -22,6 +23,7 @@ enum class TimerState {
     IDLE,
     WORK,
     WIND_UP,
+    STARTING,
     SHORT_BREAK,
     LONG_BREAK,
     PAUSED_WORK,
@@ -53,7 +55,7 @@ enum class MenuItem {
     THEME,              // Visual theme selection
     ENABLE_WINDUP,       // Toggle wind-up mode    
     ALARM_DURATION,      // Alarm length in seconds
-    ALARM_VIBRATION,     // Toggle vibration
+    ALARM_VIBRATION,     // Toggle haptic feedback
     ALARM_FLASH,         // Toggle screen flash
     MENU_ITEM_COUNT      // Keep this last for iteration
 };
@@ -114,6 +116,7 @@ private:
     // Wind-up feature
     bool windupEnabled;
     uint32_t windupValue;  // Current wound-up seconds (0 to workDuration*60)
+    uint32_t windupStartTime;
 
 public:
     TimerCore();

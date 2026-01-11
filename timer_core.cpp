@@ -31,6 +31,7 @@ TimerCore::TimerCore()
     blinkCount(0),
     windupEnabled(false),
     windupValue(0),
+    windupStartTime(0),
     menuState(MenuState::CLOSED),
     currentMenuItem(MenuItem::POMODORO_LENGTH),
     editingValue(0)
@@ -158,8 +159,9 @@ void TimerCore::startWorkFromWindup() {
     // Start work with the wound-up duration
     duration = windupValue;
     remainingTime = duration;
-    startTime = millis();
-    state = TimerState::WORK;
+    startTime = 0;
+    windupStartTime = millis();
+    state = TimerState::STARTING;
     windupValue = 0;  // Reset for next time
     
     Serial.printf("Work started from wind-up - Duration: %lu seconds\n", duration);
@@ -800,6 +802,14 @@ void TimerCore::updateAlert() {
 void TimerCore::update() {
     if (alertActive) {
         updateAlert();
+        return;
+    }
+
+    if (state == TimerState::STARTING) {
+        if (millis() - windupStartTime >= WINDUP_START_DELAY_MS) {
+            startTime = millis();
+            state = TimerState::WORK;
+        }
         return;
     }
 
