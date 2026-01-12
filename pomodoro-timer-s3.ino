@@ -137,6 +137,8 @@ const int BRIGHTNESS_VALUES[8] = {20, 40, 80, 120, 160, 200, 230, 255};
 // ============================================================================
 RotaryEncoder *encoder = nullptr;
 static volatile bool encoder_changed = false;
+static bool encoder_interrupts_enabled = false;
+static bool encoder_interrupts_suspended = false;
 
 // Interrupt handler - ONLY call tick(), nothing else
 void IRAM_ATTR checkPosition() {
@@ -188,6 +190,9 @@ static lv_obj_t *pomo_container = nullptr;
 static lv_obj_t *starting_container = nullptr;
 static lv_obj_t *starting_label = nullptr;
 static lv_obj_t *starting_sub_label = nullptr;
+static bool task_reset_pending = false;
+static bool wake_button2_pending = false;
+static uint32_t wake_button2_start = 0;
 
 // Progress indicators
 static lv_obj_t *progress_pomodoros[10] = {nullptr};
@@ -252,6 +257,10 @@ void update_battery_display();
 void update_brightness();
 void apply_theme_assets();
 void apply_display_orientation();
+void suspend_encoder_interrupts();
+void resume_encoder_interrupts();
+void enable_encoder_interrupts();
+void disable_encoder_interrupts();
 void disable_scrolling(lv_obj_t *obj);
 void set_alert_colors(bool inverted);
 void update_cpu_frequency();
@@ -363,11 +372,13 @@ void handle_button1_longpress() {
   timer.resetIdleTimer();
   display_sleep_message();
   
-  while (digitalRead(PIN_BUTTON_1) == LOW) {
-    delay(50);
+  uint32_t wait_start = millis();
+  while (digitalRead(PIN_BUTTON_1) == LOW && millis() - wait_start < 1000) {
+    delay(10);
+    esp_task_wdt_reset();
   }
   
-  delay(500);
+  delay(100);
   enter_deep_sleep();
 }
 
@@ -390,20 +401,7 @@ void handle_button2_longpress() {
   timer.resetIdleTimer();
   timer.resetSaveState();
 
-  if (task_list != nullptr) {
-    lv_obj_clean(task_list);
-    
-    for (int i = 0; i < MAX_TASKS; i++) {
-      task_numbers[i] = nullptr;
-      task_symbols[i] = nullptr;
-      task_counts[i] = nullptr;
-      count_labels[i] = nullptr;
-      interrupt_symbols[i] = nullptr;
-      interrupt_counts[i] = nullptr;
-    }
-  }
-
-  update_task_display();
+  task_reset_pending = true;
 }
 
 
@@ -483,9 +481,42 @@ void apply_display_orientation() {
   tft.setRotation(rotation);
 }
 
+void suspend_encoder_interrupts() {
+  if (encoder_interrupts_enabled) {
+    disable_encoder_interrupts();
+    encoder_interrupts_suspended = true;
+  }
+}
+
+void resume_encoder_interrupts() {
+  if (encoder_interrupts_suspended) {
+    enable_encoder_interrupts();
+    encoder_interrupts_suspended = false;
+  }
+}
+
+void enable_encoder_interrupts() {
+  if (!encoder_interrupts_enabled) {
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), checkPosition, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(PIN_ENC_B), checkPosition, CHANGE);
+    encoder_interrupts_enabled = true;
+  }
+}
+
+void disable_encoder_interrupts() {
+  if (encoder_interrupts_enabled) {
+    detachInterrupt(digitalPinToInterrupt(PIN_ENC_A));
+    detachInterrupt(digitalPinToInterrupt(PIN_ENC_B));
+    encoder_interrupts_enabled = false;
+  }
+}
+
 
 
 void update_task_display() {
+  if (sidebar_container == nullptr) {
+    return;
+  }
 
   // First time setup of task list
   if (task_list == nullptr) {
@@ -512,12 +543,6 @@ void update_task_display() {
     }
   }
 
-
-  // ADD THIS: Ensure task_list is visible and valid parent
-  if (sidebar_container == nullptr || lv_obj_has_flag(task_list, LV_OBJ_FLAG_HIDDEN)) {
-    Serial.println("WARNING: task_list or sidebar_container in invalid state");
-    return;
-  }
 
   // This ensures the scroll state is clean
   lv_obj_scroll_to_y(task_list, 0, LV_ANIM_OFF);
@@ -773,9 +798,13 @@ void update_cpu_frequency() {
   // Only change frequency when state actually changes
   if (current_state != last_state) {
     if (current_state == TimerState::IDLE) {
-      // Low power mode when idle
-      setCpuFrequencyMhz(40);
-      Serial.println("CPU: 40MHz (idle power saving)");
+      if (encoder_interrupts_enabled) {
+        setCpuFrequencyMhz(80);
+        Serial.println("CPU: 80MHz (idle + encoder)");
+      } else {
+        setCpuFrequencyMhz(40);
+        Serial.println("CPU: 40MHz (idle power saving)");
+      }
     } else {
       // Normal power mode when active
       setCpuFrequencyMhz(80);
@@ -1072,6 +1101,10 @@ void update_work_display() {
 
 // Modified update_windup_display - now just configures existing elements
 void update_windup_display() {
+  static uint8_t last_task_id = 255;
+  static uint8_t last_completed = 255;
+  static uint8_t last_interrupted = 255;
+
   // Create UI elements if needed (don't call update_work_display!)
   create_work_ui_elements();
 
@@ -1158,12 +1191,15 @@ void update_windup_display() {
     lv_obj_clear_flag(task_title_label, LV_OBJ_FLAG_HIDDEN);
   }
   
-  // Update pomodoro display
-  if (pomo_container != nullptr) {
+  // Update pomodoro display only when stats or task changes
+  uint8_t current_task = timer.getCurrentTaskId();
+  uint8_t completed = timer.getTaskCompletedPomodoros(current_task);
+  uint8_t interrupted = timer.getTaskInterruptedPomodoros(current_task);
+  if (pomo_container != nullptr &&
+      (current_task != last_task_id ||
+       completed != last_completed ||
+       interrupted != last_interrupted)) {
     lv_obj_clean(pomo_container);
-    
-    uint8_t completed = timer.getTaskCompletedPomodoros(timer.getCurrentTaskId());
-    uint8_t interrupted = timer.getTaskInterruptedPomodoros(timer.getCurrentTaskId());
     
     lv_obj_t *pomodoro_label = lv_label_create(pomo_container);
     lv_obj_set_style_text_font(pomodoro_label, &pomodoro_symbols, 0);
@@ -1183,6 +1219,9 @@ void update_windup_display() {
     }
     
     lv_label_set_text(pomodoro_label, symbols_str);
+    last_task_id = current_task;
+    last_completed = completed;
+    last_interrupted = interrupted;
   }
 }
 
@@ -1645,9 +1684,22 @@ void update_display() {
     last_theme = timer.getTheme();
   }
 
+  if (task_reset_pending && sidebar_container != nullptr) {
+    update_task_display();
+    update_pomodoro_display();
+    task_reset_pending = false;
+  }
+
   if (timer.getMenuState() != MenuState::CLOSED) {
       update_menu_display();
       return;
+  }
+
+  if (timer.getState() != last_state) {
+    if (timer.getState() == TimerState::WIND_UP || timer.getState() == TimerState::STARTING) {
+      update_pomodoro_display();
+      update_long_break_progress();
+    }
   }
 
   if (timer.getState() == TimerState::STARTING) {
@@ -1709,6 +1761,7 @@ void update_display() {
     // Hide during wind-up (similar to work)
     lv_obj_add_flag(bg_img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(sidebar_container, LV_OBJ_FLAG_HIDDEN);
+    if (progress_container != nullptr) lv_obj_add_flag(progress_container, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(main_container, 320, 170);
     update_windup_display();  // Call wind-up display
 
@@ -1748,8 +1801,10 @@ void update_display() {
 
   }
 
-  update_pomodoro_display();
-  update_long_break_progress();
+  if (timer.getState() != TimerState::WIND_UP && timer.getState() != TimerState::STARTING) {
+    update_pomodoro_display();
+    update_long_break_progress();
+  }
 
 
   // === UPDATE TIME DISPLAY ===
@@ -2293,11 +2348,6 @@ void setup() {
   Serial.printf("Reset reason: %d\n", reason);
 
 
-  // Initialize watchdog timer (30 second timeout)
-  esp_task_wdt_init(30, true);  // 30 seconds, panic on timeout
-  esp_task_wdt_add(NULL);       // Add current task to WDT
-  Serial.println("Watchdog timer initialized (30s timeout)");
-
   // Check wake reason
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
   
@@ -2312,9 +2362,17 @@ void setup() {
     pinMode(PIN_ENC_A, INPUT_PULLUP);
     pinMode(PIN_ENC_B, INPUT_PULLUP);
     pinMode(PIN_ENC_BTN, INPUT_PULLUP);
-    while (digitalRead(PIN_BUTTON_2) == LOW) delay(10);
+    if (digitalRead(PIN_BUTTON_2) == LOW) {
+      wake_button2_pending = true;
+      wake_button2_start = millis();
+    }
     delay(100);
   }
+
+  // Initialize watchdog timer (30 second timeout)
+  esp_task_wdt_init(30, true);  // 30 seconds, panic on timeout
+  esp_task_wdt_add(NULL);       // Add current task to WDT
+  Serial.println("Watchdog timer initialized (30s timeout)");
 
   Serial.println("Starting setup...");
   setCpuFrequencyMhz(80);
@@ -2327,6 +2385,8 @@ void setup() {
   // Clear button states
   btn1.reset();
   btn2.reset();
+
+  pinMode(PIN_BUTTON_2, INPUT_PULLUP);
 
   // Initialize TFT
   tft.init();
@@ -2355,6 +2415,8 @@ void setup() {
   // EC11 ENCODER SETUP - OPTIMIZED
   // ============================================================================
   Serial.println("Initializing EC11 encoder...");
+  pinMode(PIN_ENC_A, INPUT_PULLUP);
+  pinMode(PIN_ENC_B, INPUT_PULLUP);
   
   // Create encoder with FOUR3 mode (best for EC11)
   encoder = new RotaryEncoder(PIN_ENC_A, PIN_ENC_B, RotaryEncoder::LatchMode::FOUR3);
@@ -2363,11 +2425,8 @@ void setup() {
   encoder->setPosition(0);
   encoder_position = 0;
   delay(10);
-  
-  // Attach interrupts to both encoder pins
-  attachInterrupt(digitalPinToInterrupt(PIN_ENC_A), checkPosition, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(PIN_ENC_B), checkPosition, CHANGE);
-  
+  enable_encoder_interrupts();
+
   // Setup encoder button
   pinMode(PIN_ENC_BTN, INPUT_PULLUP);
   
@@ -2404,6 +2463,7 @@ void setup() {
 void loop() {
   static uint32_t last_lvgl_tick = 0;
   static uint32_t last_ui_update = 0;
+  static TimerState last_encoder_state = TimerState::IDLE;
   uint32_t now = millis();
   
   // Read battery voltage
@@ -2450,74 +2510,97 @@ void loop() {
 
   // Button handling
   btn1.loop();
+  if (wake_button2_pending) {
+    if (digitalRead(PIN_BUTTON_2) == HIGH) {
+      wake_button2_pending = false;
+    } else if (millis() - wake_button2_start >= 2000) {
+      Serial.println("Wake hold detected - resetting save state");
+      timer.resetIdleTimer();
+      timer.resetSaveState();
+      task_reset_pending = true;
+      wake_button2_pending = false;
+      btn2.reset();
+    }
+  }
   btn2.loop();
 
-  
   // ============================================================================
   // ENCODER PROCESSING - Clean and efficient
   // ============================================================================
   if (encoder_changed) {
     encoder_changed = false;
-    
-    long new_position = encoder->getPosition();
-    
-    if (new_position != encoder_position) {
-      if (timer.getState() == TimerState::STARTING) {
-        encoder_position = new_position;
-        return;
-      }
-      int8_t direction = (new_position > encoder_position) ? -1 : 1;
-      if (timer.getScreenFlipped()) {
-        direction = -direction;
-      }
+  }
+  long new_position = encoder->getPosition();
+  long delta = new_position - encoder_position;
+  
+  if (delta != 0) {
+    if (timer.getState() == TimerState::STARTING) {
       encoder_position = new_position;
-      
-      timer.resetIdleTimer();
-      
-      // Handle encoder rotation based on state
-      if (timer.getState() == TimerState::WIND_UP) {
+      return;
+    }
+    int8_t direction = (delta > 0) ? -1 : 1;
+    if (timer.getScreenFlipped()) {
+      direction = -direction;
+    }
+    int32_t steps = (delta > 0) ? delta : -delta;
+    encoder_position = new_position;
+    
+    timer.resetIdleTimer();
+    
+    // Handle encoder rotation based on state
+    if (timer.getState() == TimerState::WIND_UP) {
+      for (int32_t i = 0; i < steps; i++) {
         timer.incrementWindup(direction);
-        
-      } else if (timer.getMenuState() == MenuState::CLOSED) {
-        // Task selection
-        uint8_t current = timer.getCurrentTaskId();
-        uint8_t total = timer.getTotalTasks();
+      }
+      
+    } else if (timer.getMenuState() == MenuState::CLOSED) {
+      // Task selection
+      uint8_t current = timer.getCurrentTaskId();
+      uint8_t total = timer.getTotalTasks();
 
-        // ADD THESE DEBUG PRINTS:
-        Serial.printf("ENCODER: State=%d, Current=%d, Total=%d, Direction=%d\n", 
-                      timer.getState(), current, total, direction);
-        
-        if (current >= total) {
-            Serial.println("ERROR: Current task >= total tasks!");
-            timer.selectTask(0);  // Force to valid task
-            return;
-        }
-        
-        
-        if (direction < 0 && current < total - 1) {
-          timer.selectTask(current + 1);
-          if (task_list != nullptr && !lv_obj_has_flag(task_list, LV_OBJ_FLAG_HIDDEN)) {
-            lv_obj_scroll_to_y(task_list, (current + 1) * 20, LV_ANIM_OFF);  // ← NO ANIMATION
-          }
-        } else if (direction > 0 && current > 0) {
-          timer.selectTask(current - 1);
-          if (task_list != nullptr && !lv_obj_has_flag(task_list, LV_OBJ_FLAG_HIDDEN)) {
-            lv_obj_scroll_to_y(task_list, (current - 1) * 20, LV_ANIM_OFF);  // ← NO ANIMATION
-          }
-        }
+      // ADD THESE DEBUG PRINTS:
+      Serial.printf("ENCODER: State=%d, Current=%d, Total=%d, Direction=%d\n", 
+                    timer.getState(), current, total, direction);
+      
+      if (current >= total) {
+          Serial.println("ERROR: Current task >= total tasks!");
+          timer.selectTask(0);  // Force to valid task
+          return;
+      }
+      
+      
+      uint8_t target = current;
+      if (direction < 0) {
+        uint8_t max_step = (total > 0) ? (total - 1 - current) : 0;
+        uint8_t step = (steps > max_step) ? max_step : steps;
+        target = current + step;
+      } else if (direction > 0) {
+        uint8_t step = (steps > current) ? current : steps;
+        target = current - step;
+      }
 
-        
-      } else if (timer.getMenuState() == MenuState::MENU_LIST) {
-        timer.navigateMenu(direction);
-        
-      } else if (timer.getMenuState() == MenuState::EDITING_VALUE) {
-        timer.adjustValue(direction);
-        if (timer.getCurrentMenuItem() == MenuItem::BRIGHTNESS) {
-          ledcWrite(LCD_BL_PWM_CHANNEL, BRIGHTNESS_VALUES[timer.getEditingValue()]);
+      if (target != current) {
+        timer.selectTask(target);
+        if (task_list != nullptr && !lv_obj_has_flag(task_list, LV_OBJ_FLAG_HIDDEN)) {
+          lv_obj_scroll_to_y(task_list, target * 20, LV_ANIM_OFF);  // ← NO ANIMATION
         }
       }
 
+      
+    } else if (timer.getMenuState() == MenuState::MENU_LIST) {
+      for (int32_t i = 0; i < steps; i++) {
+        timer.navigateMenu(direction);
+      }
+      
+    } else if (timer.getMenuState() == MenuState::EDITING_VALUE) {
+      for (int32_t i = 0; i < steps; i++) {
+        timer.adjustValue(direction);
+      }
+      if (timer.getCurrentMenuItem() == MenuItem::BRIGHTNESS) {
+        ledcWrite(LCD_BL_PWM_CHANNEL, BRIGHTNESS_VALUES[timer.getEditingValue()]);
+      }
     }
+
   }
   
   // ============================================================================

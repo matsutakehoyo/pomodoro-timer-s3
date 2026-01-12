@@ -616,9 +616,13 @@ void TimerCore::loadState() {
   Serial.println("Preferences loading complete");
 }
 
+extern void suspend_encoder_interrupts();
+extern void resume_encoder_interrupts();
+
 void TimerCore::saveState() {
    Serial.println("Saving state to Preferences...");
    
+   suspend_encoder_interrupts();
    Preferences prefs;
    prefs.begin("pomodoro", false);
    
@@ -662,8 +666,9 @@ void TimerCore::saveState() {
       prefs.putUChar(intKey.c_str(), interruptedPomodoros[i]);
   }
   
-  prefs.end();
-  Serial.println("Preferences save complete");
+   prefs.end();
+   resume_encoder_interrupts();
+   Serial.println("Preferences save complete");
 }
 
 void TimerCore::resetSaveState() {

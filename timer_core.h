@@ -1,4 +1,6 @@
 #pragma once
+#ifndef TIMER_CORE_H
+#define TIMER_CORE_H
 #include <Arduino.h>
 
 // Timing constants
@@ -31,6 +33,8 @@ enum class TimerState {
     PAUSED_LONG_BREAK,
     ALERT
 };
+
+#endif
 
 // Add to existing enums
 enum class MenuState {
@@ -159,7 +163,6 @@ public:
     
 
     // Long Break
-    uint8_t getPomodorosSinceLastLongBreak() const { return pomodorosSinceLastLongBreak; }
 
     // Wind-up controls
     void startWindup();
